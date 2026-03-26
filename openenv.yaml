@@ -1,0 +1,37 @@
+name: logtriage-env
+version: 1.0.0
+description: >
+  An OpenEnv environment where an AI agent acts as an on-call SRE.
+  The agent receives live system logs from a simulated microservice cluster
+  and must diagnose, prioritize, and resolve incidents across 3 tasks
+  of increasing difficulty.
+author: Rohit Patil
+tags:
+  - openenv
+  - sre
+  - log-analysis
+  - incident-response
+  - reinforcement-learning
+tasks:
+  - id: single_crash
+    name: Single Service Crash
+    difficulty: easy
+    max_steps: 8
+    description: One service crashes with clear error logs. Classify, identify root cause, remediate.
+  - id: cascading_failure
+    name: Cascading Failure
+    difficulty: medium
+    max_steps: 12
+    description: Database slowdown causes upstream cascade. Find root cause, not just symptoms.
+  - id: silent_degradation
+    name: Silent Degradation with Noise
+    difficulty: hard
+    max_steps: 15
+    description: Slow degradation hidden in 60% noise. Nuanced severity judgment required.
+action_space:
+  type: discrete
+  description: SRE triage actions — classify, identify, escalate, remediate, resolve
+observation_space:
+  type: structured
+  description: Log batches + system state + incident metadata per step
+reward_range: [-0.5, 1.0]
