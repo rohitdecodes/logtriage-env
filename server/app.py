@@ -1,14 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from server.models import TriageAction, TriageObservation, EpisodeState
+from server.models import TriageAction
+from server.environment import LogTriageEnvironment
 
 app = FastAPI(
     title="LogTriageEnv",
     description="OpenEnv environment for SRE incident triage",
     version="1.0.0",
 )
+
+# One environment instance per server process
+env = LogTriageEnvironment()
 
 
 @app.get("/health")
@@ -17,24 +21,35 @@ def health():
 
 
 @app.post("/reset")
-def reset(task: str = "single_crash", seed: int = None):
-    # TODO Day 2: wire to LogTriageEnvironment
-    return {"message": "reset endpoint placeholder", "task": task}
+def reset(
+    task: str = Query(default="single_crash", description="Task ID to run"),
+    seed: int = Query(default=None, description="Random seed for reproducibility"),
+):
+    try:
+        obs = env.reset(task_id=task, seed=seed)
+        return obs.model_dump()
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.post("/step")
 def step(action: TriageAction):
-    # TODO Day 2: wire to LogTriageEnvironment
     valid, err = action.is_valid()
     if not valid:
         return JSONResponse(status_code=422, content={"error": err})
-    return {"message": "step endpoint placeholder", "action_received": action.model_dump()}
+    try:
+        obs = env.step(action)
+        return obs.model_dump()
+    except RuntimeError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.get("/state")
 def state():
-    # TODO Day 2: wire to LogTriageEnvironment
-    return {"message": "state endpoint placeholder"}
+    try:
+        return env.state.model_dump()
+    except RuntimeError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.get("/tasks")
@@ -49,7 +64,7 @@ def get_tasks():
                 "description": "One service crashes. Classify severity, find root cause, remediate.",
                 "action_schema": {
                     "action_type": "classify_severity | identify_root_cause | escalate | remediate | request_more_logs | resolve | ignore",
-                    "value": "string (depends on action_type)",
+                    "value": "string (depends on action_type — see README)",
                     "confidence": "float [0.0, 1.0]",
                     "reasoning": "string (optional)",
                 },
@@ -59,10 +74,10 @@ def get_tasks():
                 "name": "Cascading Failure",
                 "difficulty": "medium",
                 "max_steps": 12,
-                "description": "DB slowdown cascades upstream. Find the true root cause.",
+                "description": "DB slowdown cascades upstream. Find the true root cause, not symptoms.",
                 "action_schema": {
                     "action_type": "classify_severity | identify_root_cause | escalate | remediate | request_more_logs | resolve | ignore",
-                    "value": "string (depends on action_type)",
+                    "value": "string (depends on action_type — see README)",
                     "confidence": "float [0.0, 1.0]",
                     "reasoning": "string (optional)",
                 },
@@ -72,10 +87,10 @@ def get_tasks():
                 "name": "Silent Degradation with Noise",
                 "difficulty": "hard",
                 "max_steps": 15,
-                "description": "Slow degradation hidden in 60% noise. Nuanced P2 judgment.",
+                "description": "Slow degradation hidden in 60% noise. Nuanced P2 severity judgment.",
                 "action_schema": {
                     "action_type": "classify_severity | identify_root_cause | escalate | remediate | request_more_logs | resolve | ignore",
-                    "value": "string (depends on action_type)",
+                    "value": "string (depends on action_type — see README)",
                     "confidence": "float [0.0, 1.0]",
                     "reasoning": "string (optional)",
                 },
@@ -86,14 +101,19 @@ def get_tasks():
 
 @app.post("/grader")
 def grader():
-    # TODO Day 4: wire to grader logic
-    return {"message": "grader endpoint placeholder", "score": 0.0}
+    score = env.get_grader_score()
+    return {
+        "score": score,
+        "episode_id": env.state.episode_id if env._state else None,
+        "task_id": env._task_id,
+        "steps_taken": env.state.step_count if env._state else 0,
+    }
 
 
 @app.post("/baseline")
 def baseline():
     # TODO Day 5: wire to baseline.py
-    return {"message": "baseline endpoint placeholder"}
+    return {"message": "baseline endpoint — to be wired on Day 5"}
 
 
 if __name__ == "__main__":
