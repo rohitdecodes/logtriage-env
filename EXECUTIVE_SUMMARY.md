@@ -1,12 +1,14 @@
-# 🚀 EXECUTIVE SUMMARY — LogTriageEnv Day 1
+# 🚀 EXECUTIVE SUMMARY — LogTriageEnv Days 1-2
 
-**Status: ✅ 95% COMPLETE — READY FOR TESTING & GITHUB PUSH**
+**Status: ✅ 100% COMPLETE (Days 1-2) — FULL TASK 1 PLAYABLE**
 
 ---
 
 ## What You've Built
 
 **LogTriageEnv** — An OpenEnv environment that teaches AI agents to be on-call SREs.
+
+**Days 1-2 Complete:** Full Task 1 (Single Service Crash) is now fully playable end-to-end!
 
 ```
 Agent receives → System logs from 7-service cluster
@@ -23,14 +25,14 @@ Agent learns → Gets reward signal + feedback
 |--------|-------|
 | **Files Created** | 30+ |
 | **Folders Created** | 5 |
-| **Code Written** | ~320 lines (models + API) |
+| **Code Written** | ~1,100 lines (models + API + environment) |
 | **Documentation** | ~1,900 lines (README + guides) |
 | **Tests Written** | ~200 lines |
 | **Data Models** | 5 (all fully typed) |
-| **API Endpoints** | 7 (all registered) |
-| **Tasks Designed** | 3 (escalating difficulty) |
-| **Supporting Guides** | 7 reference documents |
-| **Completion %** | **95%** |
+| **API Endpoints** | 7 (3 wired & working, 4 TODO) |
+| **Tasks Playable** | 1/3 (Task 1: Single Crash - COMPLETE) |
+| **Supporting Guides** | 8 reference documents |
+| **Completion %** | **40% (Days 1-2 Complete)** |
 
 ---
 
