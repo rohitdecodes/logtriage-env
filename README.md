@@ -1,3 +1,17 @@
+---
+title: LogTriageEnv
+emoji: 🚨
+colorFrom: red
+colorTo: orange
+sdk: docker
+pinned: false
+tags:
+  - openenv
+  - reinforcement-learning
+  - sre
+  - log-analysis
+---
+
 # LogTriageEnv — OpenEnv Environment
 
 > **Meta × PyTorch Hackathon — Round 1 Submission**
