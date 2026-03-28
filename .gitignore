@@ -205,3 +205,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# LogTriage generated reports
+*_SUMMARY.md
+*_STATUS.md
+DAY*.md
+FINAL_CHECKLIST.md
+WHAT_HAS_BEEN_DONE.md
+README_EXPLAINED.md
+START_HERE.md
+ANALYSIS_SUMMARY.md
+COMPLETE_SUMMARY.md
