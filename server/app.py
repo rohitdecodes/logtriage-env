@@ -101,13 +101,15 @@ def get_tasks():
 
 @app.post("/grader")
 def grader():
-    score = env.get_grader_score()
-    return {
-        "score": score,
-        "episode_id": env.state.episode_id if env._state else None,
-        "task_id": env._task_id,
-        "steps_taken": env.state.step_count if env._state else 0,
-    }
+    try:
+        from server.graders import score_episode
+        state = env.state
+        result = score_episode(state.task_id, state)
+        return result
+    except RuntimeError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.post("/baseline")

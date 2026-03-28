@@ -206,6 +206,10 @@ class EpisodeState(BaseModel):
         default_factory=list,
         description="List of action_type values taken so far this episode"
     )
+    action_history: list[dict] = Field(
+        default_factory=list,
+        description="Full action objects taken this episode (for grader evaluation)"
+    )
     correct_severity: Optional[str] = Field(
         None,
         description="Whether agent has correctly classified severity yet"

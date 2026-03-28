@@ -15,6 +15,8 @@ from server.models import (
     ServiceStatus,
 )
 from server.scenarios import single_crash
+from server.scenarios import cascading
+from server.scenarios import silent_degrade
 from server.log_generator import generate_healthy_system_state, _make_timestamp
 
 # ─── TASK REGISTRY ─────────────────────────────────────────────────────────────
@@ -77,9 +79,10 @@ class LogTriageEnvironment:
         # Load ground truth for this task
         if task_id == "single_crash":
             self._ground_truth = single_crash.GROUND_TRUTH
-        else:
-            # Tasks 2 & 3 will be wired in Day 3
-            self._ground_truth = {}
+        elif task_id == "cascading_failure":
+            self._ground_truth = cascading.GROUND_TRUTH
+        elif task_id == "silent_degradation":
+            self._ground_truth = silent_degrade.GROUND_TRUTH
 
         # Initialize episode state
         self._state = EpisodeState(
@@ -141,6 +144,7 @@ class LogTriageEnvironment:
             self._state.cumulative_score + reward, 4
         )
         self._state.actions_taken.append(action.action_type)
+        self._state.action_history.append(action.model_dump())
         self._state.step_count += 1
 
         # Check if episode should end
@@ -293,13 +297,20 @@ class LogTriageEnvironment:
         """Get logs and system state for the current step."""
         if self._task_id == "single_crash":
             return single_crash.get_step_data(step, self._base_time, self._rng)
-        # Tasks 2 & 3 wired in Day 3
+        elif self._task_id == "cascading_failure":
+            return cascading.get_step_data(step, self._base_time, self._rng)
+        elif self._task_id == "silent_degradation":
+            return silent_degrade.get_step_data(step, self._base_time, self._rng)
         return [], generate_healthy_system_state(self._base_time)
 
     def _get_alerts(self, step: int) -> list[str]:
         """Get active alerts for the current step."""
         if self._task_id == "single_crash":
             return single_crash.get_active_alerts(step)
+        elif self._task_id == "cascading_failure":
+            return cascading.get_active_alerts(step)
+        elif self._task_id == "silent_degradation":
+            return silent_degrade.get_active_alerts(step)
         return []
 
     def _make_obs(
