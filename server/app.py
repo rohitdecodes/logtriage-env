@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 import uvicorn
+import os
 
 from server.models import TriageAction
 from server.environment import LogTriageEnvironment
@@ -114,8 +115,59 @@ def grader():
 
 @app.post("/baseline")
 def baseline():
-    # TODO Day 5: wire to baseline.py
-    return {"message": "baseline endpoint — to be wired on Day 5"}
+    """
+    Run the baseline inference script against all 3 tasks.
+    Returns scores for each task produced by the LLM agent.
+    Note: Requires GROQ_API_KEY (or other provider key) to be set.
+    """
+    import subprocess
+    import sys
+    import json as json_lib
+
+    try:
+        # Pass through all current env vars, plus GROQ_API_KEY if set
+        env = os.environ.copy()
+        groq_key = os.environ.get("GROQ_API_KEY", "")
+        if not groq_key:
+            # Try to read from process that started the server
+            pass
+
+        result = subprocess.run(
+            [sys.executable, "baseline.py"],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=env,
+        )
+
+        if result.returncode != 0:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Baseline script failed",
+                    "stderr": result.stderr[-500:] if result.stderr else "",
+                }
+            )
+
+        # Extract JSON from output
+        output_lines = result.stdout.strip().split("\n")
+        json_start = None
+        for i, line in enumerate(output_lines):
+            if line.strip() == "JSON Output (for /baseline endpoint):":
+                json_start = i + 1
+                break
+
+        if json_start and json_start < len(output_lines):
+            json_str = "\n".join(output_lines[json_start:])
+            return json_lib.loads(json_str)
+        else:
+            return {"message": "Baseline completed", "output": result.stdout[-1000:]}
+
+    except subprocess.TimeoutExpired:
+        return JSONResponse(status_code=504, content={"error": "Baseline timed out after 5 minutes"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 if __name__ == "__main__":

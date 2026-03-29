@@ -6,6 +6,7 @@ description: >
   and must diagnose, prioritize, and resolve incidents across 3 tasks
   of increasing difficulty.
 author: Rohit Patil
+space_url: https://ogrohit-logtriage-env.hf.space
 tags:
   - openenv
   - sre
