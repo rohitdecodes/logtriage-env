@@ -347,8 +347,8 @@ uvicorn server.app:app --host 0.0.0.0 --port 7860 --reload
 ### Run baseline inference
 
 ```bash
-export OPENAI_API_KEY=your_key_here
-python baseline.py
+export HF_TOKEN=your_key_here
+python inference.py
 ```
 
 ### Validate all 3 tasks manually
@@ -377,7 +377,7 @@ curl http://localhost:7860/health
 curl -X POST http://localhost:7860/reset
 
 # Run baseline inside container
-docker run -e OPENAI_API_KEY=your_key logtriage-env python baseline.py
+docker run -e HF_TOKEN=your_key -e API_BASE_URL=https://api.groq.com/openai/v1 -e MODEL_NAME=llama-3.3-70b-versatile logtriage-env python inference.py
 ```
 
 ---
@@ -395,7 +395,7 @@ The Space uses a Docker SDK with the following configuration:
 title: LogTriageEnv
 emoji: 🚨
 colorFrom: red
-colorTo: orange
+colorTo: red
 sdk: docker
 pinned: false
 tags:
@@ -409,10 +409,10 @@ tags:
 
 ## 12. Baseline Inference Script
 
-`baseline.py` uses the OpenAI API client to run `gpt-4o-mini` as a zero-shot agent against all 3 tasks and reports scores.
+`inference.py` uses an OpenAI-compatible client with configurable provider settings to run `llama-3.3-70b-versatile` as a zero-shot agent against all 3 tasks and reports scores.
 
 ```python
-# baseline.py (structure)
+# inference.py (structure)
 import os
 from openai import OpenAI
 import requests
@@ -457,19 +457,24 @@ if __name__ == "__main__":
 
 ## 13. Baseline Scores
 
-*(To be filled after implementation and baseline runs)*
+Scores produced by `inference.py` using `llama-3.3-70b-versatile` via Groq API (`seed=42`):
 
-| Task | Difficulty | Baseline Score (gpt-4o-mini) |
+| Task | Difficulty | Score |
 |---|---|---|
-| Single Service Crash | Easy | TBD |
-| Cascading Failure | Medium | TBD |
-| Silent Degradation | Hard | TBD |
-| **Average** | | **TBD** |
+| Single Service Crash | Easy | 1.0000 |
+| Cascading Failure | Medium | 0.6500 |
+| Silent Degradation | Hard | 0.0000 |
+| **Average** | | **0.5500** |
 
 Expected ranges based on design:
-- Single crash: 0.75–0.85
-- Cascading failure: 0.45–0.60
-- Silent degradation: 0.20–0.40
+- Single crash: 0.75–0.85 → **Exceeded (1.0000)**
+- Cascading failure: 0.45–0.60 → **Exceeded (0.6500)**
+- Silent degradation: 0.20–0.40 → **Below range (0.0000 — see note)**
+
+> **Note:** LLM-based scoring varies across runs due to non-deterministic model behavior.
+> The Silent Degradation task is hardest — it requires distinguishing signal from 60% noise
+> and making a nuanced P2 judgment (not an outage yet). Scores on this task can range
+> from 0.0 to 0.55 depending on the model's log parsing on that specific run.
 
 ---
 
@@ -505,7 +510,7 @@ Expected ranges based on design:
 - [ ] `POST /grader` returns score in [0.0, 1.0]
 - [ ] `POST /baseline` completes and returns scores for all 3 tasks
 - [ ] HF Space URL responds to ping with 200
-- [ ] Baseline script runs end-to-end with `OPENAI_API_KEY` set
+- [ ] Baseline script runs end-to-end with `HF_TOKEN` set
 - [ ] All 3 graders return varying scores (not constant)
 - [ ] README includes all required sections
 - [ ] `requirements.txt` is complete and pinned
@@ -520,7 +525,7 @@ logtriage-env/
 ├── openenv.yaml               # OpenEnv metadata
 ├── Dockerfile                 # Container definition
 ├── requirements.txt           # Top-level deps
-├── baseline.py                # Baseline inference script
+├── inference.py               # Baseline inference script
 │
 ├── server/
 │   ├── __init__.py

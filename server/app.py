@@ -118,34 +118,26 @@ def baseline():
     """
     Run the baseline inference script against all 3 tasks.
     Returns scores for each task produced by the LLM agent.
-    Note: Requires GROQ_API_KEY (or other provider key) to be set.
+    Note: Requires HF_TOKEN (or GROQ_API_KEY) to be set.
     """
     import subprocess
     import sys
     import json as json_lib
 
     try:
-        # Pass through all current env vars, plus GROQ_API_KEY if set
-        env = os.environ.copy()
-        groq_key = os.environ.get("GROQ_API_KEY", "")
-        if not groq_key:
-            # Try to read from process that started the server
-            pass
-
         result = subprocess.run(
-            [sys.executable, "baseline.py"],
+            [sys.executable, "inference.py"],
             capture_output=True,
             text=True,
-            timeout=300,  # 5 minute timeout
+            timeout=1200,  # 20 minute timeout (matches spec)
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            env=env,
         )
 
         if result.returncode != 0:
             return JSONResponse(
                 status_code=500,
                 content={
-                    "error": "Baseline script failed",
+                    "error": "Inference script failed",
                     "stderr": result.stderr[-500:] if result.stderr else "",
                 }
             )
@@ -154,7 +146,7 @@ def baseline():
         output_lines = result.stdout.strip().split("\n")
         json_start = None
         for i, line in enumerate(output_lines):
-            if line.strip() == "JSON Output (for /baseline endpoint):":
+            if line.strip() == "JSON Output:":
                 json_start = i + 1
                 break
 
@@ -165,10 +157,14 @@ def baseline():
             return {"message": "Baseline completed", "output": result.stdout[-1000:]}
 
     except subprocess.TimeoutExpired:
-        return JSONResponse(status_code=504, content={"error": "Baseline timed out after 5 minutes"})
+        return JSONResponse(status_code=504, content={"error": "Inference timed out (20min limit)"})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+def main():
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
+
+
 if __name__ == "__main__":
-    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=True)
+    main()
