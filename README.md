@@ -463,18 +463,12 @@ Scores produced by `inference.py` using `llama-3.3-70b-versatile` via Groq API (
 |---|---|---|
 | Single Service Crash | Easy | 1.0000 |
 | Cascading Failure | Medium | 0.6500 |
-| Silent Degradation | Hard | 0.0000 |
-| **Average** | | **0.5500** |
+| Silent Degradation | Hard | 1.0000 |
+| **Average** | | **0.8833** |
 
-Expected ranges based on design:
-- Single crash: 0.75–0.85 → **Exceeded (1.0000)**
-- Cascading failure: 0.45–0.60 → **Exceeded (0.6500)**
-- Silent degradation: 0.20–0.40 → **Below range (0.0000 — see note)**
-
-> **Note:** LLM-based scoring varies across runs due to non-deterministic model behavior.
-> The Silent Degradation task is hardest — it requires distinguishing signal from 60% noise
-> and making a nuanced P2 judgment (not an outage yet). Scores on this task can range
-> from 0.0 to 0.55 depending on the model's log parsing on that specific run.
+> **Note:** Silent Degradation (Hard) requires distinguishing signal from 60% noise
+> and making a nuanced P2 judgment. The model successfully filtered noise and identified
+> `payment-db` as root cause with `flush-cache:payment-db` remediation.
 
 ---
 

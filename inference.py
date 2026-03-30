@@ -258,7 +258,7 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
             feedback = obs.get("last_action_feedback", "")
             actions_taken.append(action)
             print(f"    Step {steps_taken}: {action['action_type']}({action['value']}) "
-                  f"→ reward={reward:+.2f} | {feedback[:50]}")
+                  f"-> reward={reward:+.2f} | {feedback[:50]}")
         except Exception as e:
             print(f"    Step {steps_taken}: environment error: {e}")
             break
@@ -343,7 +343,7 @@ def main():
         score = result["score"]
         steps = result["steps_taken"]
         total += score
-        bar = "█" * int(score * 20) + "░" * (20 - int(score * 20))
+        bar = "#" * int(score * 20) + "-" * (20 - int(score * 20))
         print(f"{task:<25} {score:.4f}  [{bar}]  ({steps} steps)")
         for k, v in result.get("breakdown", {}).items():
             print(f"  {k:<20} {v}")
