@@ -409,48 +409,53 @@ tags:
 
 ## 12. Baseline Inference Script
 
-`inference.py` uses an OpenAI-compatible client with configurable provider settings to run `llama-3.3-70b-versatile` as a zero-shot agent against all 3 tasks and reports scores.
+`inference.py` uses an OpenAI-compatible client with configurable provider settings to run any LLM (default: `meta-llama/Llama-3.3-70B-Instruct` via Hugging Face router) as a zero-shot SRE agent against all 3 tasks and reports structured scores.
 
-```python
-# inference.py (structure)
-import os
-from openai import OpenAI
-import requests
+### Environment Variables
 
-BASE_URL = os.getenv("ENV_URL", "http://localhost:7860")
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+| Variable | Default | Description |
+|---|---|---|
+| `HF_TOKEN` | *(required)* | API key for the LLM provider |
+| `API_BASE_URL` | `https://router.huggingface.co/v1` | API endpoint |
+| `MODEL_NAME` | `meta-llama/Llama-3.3-70B-Instruct` | Model identifier |
+| `ENV_URL` | `http://localhost:7860` | LogTriageEnv server |
 
-def run_task(task_id: str) -> float:
-    # reset environment
-    obs = requests.post(f"{BASE_URL}/reset", json={"task": task_id}).json()
-    
-    done = False
-    while not done:
-        # build prompt from observation
-        prompt = build_prompt(obs)
-        
-        # call LLM
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        # parse action from response
-        action = parse_action(response.choices[0].message.content)
-        
-        # step environment
-        result = requests.post(f"{BASE_URL}/step", json=action).json()
-        obs = result
-        done = result["done"]
-    
-    # get final grader score
-    score = requests.post(f"{BASE_URL}/grader").json()["score"]
-    return score
+### Key Features
 
-if __name__ == "__main__":
-    for task in ["single_crash", "cascading_failure", "silent_degradation"]:
-        score = run_task(task)
-        print(f"{task}: {score:.3f}")
+- **System prompt** — Structured SRE triage persona with action schema enforced via JSON output
+- **Conversation history** — Bounded to 8 turns to stay within context limits
+- **Fallback logic** — Heuristic fallback if LLM fails to parse or call; avoids episode crashes
+- **Step rate limiting** — 200ms sleep between steps to avoid provider rate limits
+- **Health check** — Validates environment is reachable before running tasks
+- **Seeded reproducibility** — All tasks run with `seed=42`
+
+### Usage
+
+```bash
+export HF_TOKEN=your_key_here
+export API_BASE_URL=https://api.groq.com/openai/v1   # or HF router
+export MODEL_NAME=llama-3.3-70b-versatile
+
+python inference.py
+```
+
+### Output
+
+The script prints a per-task score bar and returns a JSON block with full breakdown:
+
+```json
+{
+  "api_base_url": "https://api.groq.com/openai/v1",
+  "model_name": "llama-3.3-70b-versatile",
+  "seed": 42,
+  "results": [
+    { "task_id": "single_crash", "score": 1.0, "steps_taken": 5, "breakdown": {} },
+    { "task_id": "cascading_failure", "score": 0.65, "steps_taken": 9, "breakdown": {} },
+    { "task_id": "silent_degradation", "score": 1.0, "steps_taken": 12, "breakdown": {} }
+  ],
+  "average_score": 0.8833,
+  "runtime_seconds": 45.2
+}
 ```
 
 ---
