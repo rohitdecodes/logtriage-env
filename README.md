@@ -202,9 +202,9 @@ The reward function provides **dense, shaped signal** across the full trajectory
 - `remediate("restart:payment-service")` taken → 0.25
 - Resolved within 8 steps → +0.10 speed bonus
 
-**Grader score:** sum of above, normalized to [0.0, 1.0]. Deterministic — same scenario seed produces identical grader output.
+**Grader score:** sum of above, normalized to (0.0, 1.0). Deterministic — same scenario seed produces identical grader output.
 
-**Expected baseline score:** 0.75–0.85 (frontier LLM should solve this reliably)
+**Expected baseline score:** 0.70–0.85 (frontier LLM should solve this reliably)
 
 ---
 
@@ -221,9 +221,9 @@ The reward function provides **dense, shaped signal** across the full trajectory
 - Did NOT first remediate a symptom service → +0.10 ordering bonus
 - Resolved within 12 steps → +0.10 speed bonus
 
-**Grader score:** [0.0, 1.0]. Penalizes agents that treat symptoms rather than root cause.
+**Grader score:** (0.0, 1.0). Penalizes agents that treat symptoms rather than root cause.
 
-**Expected baseline score:** 0.45–0.60 (requires multi-hop reasoning)
+**Expected baseline score:** 0.50–0.65 (requires multi-hop reasoning)
 
 ---
 
@@ -241,9 +241,9 @@ The reward function provides **dense, shaped signal** across the full trajectory
 - Resolved/escalated within 15 steps → +0.10 speed bonus
 - Correctly ignored noise actions (no spurious `escalate` calls) → +0.10
 
-**Grader score:** [0.0, 1.0]. This task is designed to challenge frontier models — requires temporal reasoning across steps, noise filtering, and nuanced severity judgment.
+**Grader score:** (0.0, 1.0). This task is designed to challenge frontier models — requires temporal reasoning across steps, noise filtering, and nuanced severity judgment.
 
-**Expected baseline score:** 0.20–0.40 (even strong models struggle here)
+**Expected baseline score:** 0.45–0.60 (even strong models struggle here)
 
 ---
 
@@ -449,12 +449,12 @@ The script prints a per-task score bar and returns a JSON block with full breakd
   "model_name": "llama-3.3-70b-versatile",
   "seed": 42,
   "results": [
-    { "task_id": "single_crash", "score": 1.0, "steps_taken": 5, "breakdown": {} },
-    { "task_id": "cascading_failure", "score": 0.65, "steps_taken": 9, "breakdown": {} },
-    { "task_id": "silent_degradation", "score": 1.0, "steps_taken": 12, "breakdown": {} }
+    { "task_id": "single_crash", "score": 0.9999, "steps_taken": 4, "breakdown": {} },
+    { "task_id": "cascading_failure", "score": 0.65, "steps_taken": 7, "breakdown": {} },
+    { "task_id": "silent_degradation", "score": 0.55, "steps_taken": 5, "breakdown": {} }
   ],
-  "average_score": 0.8833,
-  "runtime_seconds": 45.2
+  "average_score": 0.7333,
+  "runtime_seconds": 97.4
 }
 ```
 
@@ -466,14 +466,13 @@ Scores produced by `inference.py` using `llama-3.3-70b-versatile` via Groq API (
 
 | Task | Difficulty | Score |
 |---|---|---|
-| Single Service Crash | Easy | 1.0000 |
+| Single Service Crash | Easy | 0.9999 |
 | Cascading Failure | Medium | 0.6500 |
-| Silent Degradation | Hard | 1.0000 |
-| **Average** | | **0.8833** |
+| Silent Degradation | Hard | 0.5500 |
+| **Average** | | **0.7333** |
 
-> **Note:** Silent Degradation (Hard) requires distinguishing signal from 60% noise
-> and making a nuanced P2 judgment. The model successfully filtered noise and identified
-> `payment-db` as root cause with `flush-cache:payment-db` remediation.
+> **Note:** Scores are clamped to the open interval (0, 1) — strictly between 0 and 1.
+> A score of exactly 1.0 or 0.0 would fail Phase 2 validation.
 
 ---
 
@@ -506,7 +505,7 @@ Scores produced by `inference.py` using `llama-3.3-70b-versatile` via Groq API (
 - [ ] `POST /reset` returns valid observation
 - [ ] `POST /step` with valid action returns observation + reward
 - [ ] `GET /tasks` returns all 3 tasks with action schema
-- [ ] `POST /grader` returns score in [0.0, 1.0]
+- [ ] `POST /grader` returns score in (0.0, 1.0) — strictly between 0 and 1
 - [ ] `POST /baseline` completes and returns scores for all 3 tasks
 - [ ] HF Space URL responds to ping with 200
 - [ ] Baseline script runs end-to-end with `HF_TOKEN` set
