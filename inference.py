@@ -195,8 +195,6 @@ def _get_fallback_action(obs: dict, step: int, actions_taken: list) -> dict:
 
 def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
     """Run one complete episode for a task. Returns score + breakdown."""
-    print(f"\n  Running task: {task_id}...")
-
     # Reset
     try:
         resp = requests.post(
@@ -207,8 +205,10 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
         resp.raise_for_status()
         obs = resp.json()
     except Exception as e:
-        print(f"  ERROR: Reset failed: {e}")
+        print(f"[ERROR] reset task={task_id} error={e}", flush=True)
         return {"score": 0.0, "error": str(e), "task_id": task_id}
+
+    print(f"[START] task={task_id}", flush=True)
 
     max_steps = MAX_STEPS_PER_TASK.get(task_id, 10)
     conversation_history = []
@@ -238,10 +238,9 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
             conversation_history.append({"role": "assistant", "content": response_text})
             action = _parse_action(response_text)
             if action is None:
-                print(f"    Step {steps_taken}: parse failed, using fallback")
                 action = _get_fallback_action(obs, steps_taken, actions_taken)
         except Exception as e:
-            print(f"    Step {steps_taken}: LLM error ({e}), using fallback")
+            print(f"[ERROR] step={steps_taken + 1} llm_error={e}", flush=True)
             action = _get_fallback_action(obs, steps_taken, actions_taken)
 
         # Step environment
@@ -255,12 +254,10 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
             obs = step_resp.json()
             done = obs.get("done", False)
             reward = obs.get("reward", 0.0)
-            feedback = obs.get("last_action_feedback", "")
             actions_taken.append(action)
-            print(f"    Step {steps_taken}: {action['action_type']}({action['value']}) "
-                  f"-> reward={reward:+.2f} | {feedback[:50]}")
+            print(f"[STEP] step={steps_taken + 1} reward={reward:.4f}", flush=True)
         except Exception as e:
-            print(f"    Step {steps_taken}: environment error: {e}")
+            print(f"[ERROR] step={steps_taken + 1} env_error={e}", flush=True)
             break
 
         steps_taken += 1
@@ -274,11 +271,12 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
         score = grader_result.get("score", 0.0)
         breakdown = grader_result.get("breakdown", {})
     except Exception as e:
-        print(f"  ERROR: Grader failed: {e}")
+        print(f"[ERROR] grader task={task_id} error={e}", flush=True)
         score = obs.get("cumulative_score", 0.0)
         breakdown = {}
 
-    print(f"  Score: {score:.4f} ({steps_taken} steps)")
+    print(f"[INFO] Score: {score:.4f} ({steps_taken} steps)", flush=True)
+    print(f"[END] task={task_id} score={score:.4f} steps={steps_taken}", flush=True)
     return {
         "task_id": task_id,
         "score": score,
