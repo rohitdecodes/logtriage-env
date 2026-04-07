@@ -33,8 +33,8 @@ class BaseGrader(ABC):
         raise NotImplementedError
 
     def _clamp(self, value: float) -> float:
-        """Clamp score to valid range [0.0, 1.0]."""
-        return round(max(0.0, min(1.0, value)), 4)
+        """Clamp score to valid range (0.0, 1.0) — strictly between 0 and 1."""
+        return round(max(0.0001, min(0.9999, value)), 4)
 
     def _get_actions_of_type(
         self, state: EpisodeState, action_type: str
