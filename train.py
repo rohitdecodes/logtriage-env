@@ -5,7 +5,7 @@ Meta × PyTorch × Scaler OpenEnv Hackathon — Grand Finale
 Usage:
     python train.py --model HuggingFaceTB/SmolLM2-360M-Instruct --task single_crash --episodes 50 --env_url http://localhost:7860
     python train.py --model HuggingFaceTB/SmolLM2-360M-Instruct --task all --episodes 100 --env_url http://localhost:7860
-    python train.py --model Qwen/Qwen2.5-1.5B-Instruct --task all --episodes 200 --env_url https://YOUR_HF_SPACE_URL
+    python train.py --model Qwen/Qwen2.5-32B-Instruct --task all --episodes 100 --load_in_4bit --env_url https://ogrohit-logtriage-env.hf.space
 """
 
 import argparse
@@ -14,7 +14,7 @@ import re
 import time
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 import requests
 import matplotlib.pyplot as plt
@@ -22,9 +22,15 @@ import matplotlib
 matplotlib.use("Agg")  # headless — no display required
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from trl import GRPOConfig, GRPOTrainer
 from datasets import Dataset
+
+try:
+    from peft import LoraConfig, get_peft_model, PeftModel
+    PEFT_AVAILABLE = True
+except ImportError:
+    PEFT_AVAILABLE = False
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -509,6 +515,8 @@ def main():
                         help="HF Hub model ID (e.g. username/logtriage-sre-agent)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print step-by-step actions during episodes")
+    parser.add_argument("--load_in_4bit", action="store_true",
+                        help="Load model with 4-bit QLoRA quantization (for large models on limited VRAM)")
     args = parser.parse_args()
 
     # ── Setup ────────────────────────────────────────────────────────────────
@@ -536,18 +544,65 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        dtype=torch.float16 if device == "cuda" else torch.float32,
-        device_map="auto" if device == "cuda" else None,
-    )
-    if device == "cpu":
-        model = model.to(device)
-    # Attach processing_class so GRPOTrainer in trl 1.2.0 can use it
-    if not hasattr(model, "processing_class"):
-        model.processing_class = tokenizer
+    use_qlora = getattr(args, "load_in_4bit", False)
+    use_lora = False
 
-    print(f"[OK] Model loaded\n")
+    if use_qlora and device == "cuda":
+        print("[QLoRA] Enabling 4-bit QLoRA quantization...")
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+        )
+        print(f"[OK] 4-bit BitsAndBytesConfig applied")
+
+        # Load quantized model
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            quantization_config=bnb_config,
+            device_map="auto",
+        )
+        print(f"[OK] Model loaded in 4-bit quantized mode")
+
+        # Apply LoRA if PEFT is available
+        if PEFT_AVAILABLE:
+            print("[QLoRA] Applying LoRA adapter...")
+            lora_config = LoraConfig(
+                r=16,
+                lora_alpha=32,
+                target_modules=[
+                    "q_proj", "k_proj", "v_proj", "o_proj",
+                    "gate_proj", "up_proj", "down_proj",
+                ],
+                lora_dropout=0.05,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            model = get_peft_model(model, lora_config)
+            model.print_trainable_parameters()
+            use_lora = True
+            print(f"[OK] LoRA adapter attached (r=16, alpha=32)")
+        else:
+            print("[WARN] PEFT not installed. Using quantized model without LoRA.")
+
+        # Attach processing_class
+        if not hasattr(model, "processing_class"):
+            model.processing_class = tokenizer
+        print(f"[OK] Model loaded\n")
+    else:
+        # Standard loading (non-quantized)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map="auto" if device == "cuda" else None,
+        )
+        if device == "cpu":
+            model = model.to(device)
+        # Attach processing_class so GRPOTrainer in trl 1.2.0 can use it
+        if not hasattr(model, "processing_class"):
+            model.processing_class = tokenizer
+        print(f"[OK] Model loaded\n")
 
     # ── Training Loop ─────────────────────────────────────────────────────────
 
@@ -666,8 +721,40 @@ def main():
         try:
             # Reload model from scratch to clear any residual CUDA state
             print("[GRPO] Reloading model from disk to clear CUDA state...")
-            model_for_training = AutoModelForCausalLM.from_pretrained(args.model, device_map=None)
-            model_for_training.eval()
+
+            # Reload with same QLoRA settings if enabled
+            if use_qlora and device == "cuda" and PEFT_AVAILABLE:
+                # For QLoRA: reload as quantized base, re-attach LoRA
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                )
+                model_for_training = AutoModelForCausalLM.from_pretrained(
+                    args.model,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                )
+                lora_config = LoraConfig(
+                    r=16,
+                    lora_alpha=32,
+                    target_modules=[
+                        "q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj",
+                    ],
+                    lora_dropout=0.05,
+                    bias="none",
+                    task_type="CAUSAL_LM",
+                )
+                model_for_training = get_peft_model(model_for_training, lora_config)
+                model_for_training.eval()
+                print("[GRPO] Reloaded model with QLoRA adapter attached")
+            else:
+                # Standard reload for non-quantized models
+                model_for_training = AutoModelForCausalLM.from_pretrained(args.model, device_map=None)
+                model_for_training.eval()
+
             trainer = GRPOTrainer(
                 model=model_for_training,
                 args=grpo_config,
@@ -676,9 +763,16 @@ def main():
                 processing_class=tokenizer,
             )
             trainer.train()
-            # Move trained weights back into main model
-            model.load_state_dict(model_for_training.state_dict())
-            del model_for_training
+
+            # Unmerge LoRA adapter before loading weights back
+            if use_lora and hasattr(model_for_training, "get_base_model"):
+                print("[GRPO] Unmerging LoRA adapter before loading trained weights...")
+                base_model = model_for_training.get_base_model()
+                model.load_state_dict(base_model.state_dict())
+                del model_for_training
+            else:
+                model.load_state_dict(model_for_training.state_dict())
+                del model_for_training
             import gc
             gc.collect()
             print(f"[OK] GRPO training complete")
@@ -702,6 +796,15 @@ def main():
             torch.cuda.empty_cache()
     except Exception:
         pass
+
+    # Merge LoRA adapter before saving (for QLoRA models)
+    if use_lora and hasattr(model, "merge_and_unload"):
+        print("[SAVE] Merging LoRA adapter into base weights...")
+        model = model.merge_and_unload()
+        print("[OK] LoRA merged — saving full model")
+    elif use_qlora:
+        print("[SAVE] QLoRA model — saving adapter only (full model is quantized)")
+
     model = model.cpu()
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
