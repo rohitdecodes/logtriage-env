@@ -5,7 +5,16 @@ Meta × PyTorch × Scaler OpenEnv Hackathon — Grand Finale
 Usage:
     python train.py --model HuggingFaceTB/SmolLM2-360M-Instruct --task single_crash --episodes 50 --env_url http://localhost:7860
     python train.py --model HuggingFaceTB/SmolLM2-360M-Instruct --task all --episodes 100 --env_url http://localhost:7860
-    python train.py --model Qwen/Qwen2.5-32B-Instruct --task all --episodes 100 --load_in_4bit --env_url https://ogrohit-logtriage-env.hf.space
+
+    # Colab T4 GPU — use Unsloth (recommended for Qwen 3B/7B):
+    python train.py --model Qwen/Qwen2.5-7B-Instruct --task all --episodes 50 --use_unsloth --env_url https://ogrohit-logtriage-env.hf.space
+    python train.py --model Qwen/Qwen2.5-3B-Instruct --task all --episodes 50 --use_unsloth --env_url https://ogrohit-logtriage-env.hf.space
+
+    # Local laptop (no quantization):
+    python train.py --model HuggingFaceTB/SmolLM2-360M-Instruct --task all --episodes 50 --env_url http://localhost:7860
+
+    # Onsite with A100 — use Unsloth for max speed:
+    python train.py --model Qwen/Qwen2.5-32B-Instruct --task all --episodes 100 --use_unsloth --env_url https://ogrohit-logtriage-env.hf.space
 """
 
 import argparse
@@ -31,6 +40,12 @@ try:
     PEFT_AVAILABLE = True
 except ImportError:
     PEFT_AVAILABLE = False
+
+try:
+    from unsloth import FastLanguageModel
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    UNSLOTH_AVAILABLE = False
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -516,7 +531,9 @@ def main():
     parser.add_argument("--verbose", action="store_true",
                         help="Print step-by-step actions during episodes")
     parser.add_argument("--load_in_4bit", action="store_true",
-                        help="Load model with 4-bit QLoRA quantization (for large models on limited VRAM)")
+                        help="Load model with 4-bit QLoRA quantization via BitsAndBytes (for large models on limited VRAM)")
+    parser.add_argument("--use_unsloth", action="store_true",
+                        help="Load model using Unsloth (recommended for Qwen on T4/A100 — faster and more memory efficient)")
     args = parser.parse_args()
 
     # ── Setup ────────────────────────────────────────────────────────────────
@@ -540,15 +557,45 @@ def main():
 
     # Load model + tokenizer
     print(f"[MODEL] Loading model: {args.model}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    use_qlora = getattr(args, "load_in_4bit", False)
+    use_unsloth = getattr(args, "use_unsloth", False)
     use_lora = False
 
-    if use_qlora and device == "cuda":
-        print("[QLoRA] Enabling 4-bit QLoRA quantization...")
+    # ── Unsloth Path (recommended for Qwen on T4/A100) ───────────────────────
+    if use_unsloth and device == "cuda" and UNSLOTH_AVAILABLE:
+        print("[UNSLOTH] Loading model with Unsloth...")
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=args.model,
+            max_seq_length=2048,
+            load_in_4bit=True,
+            dtype=None,  # Auto-detect
+        )
+        print(f"[OK] Model loaded via Unsloth (4-bit)")
+
+        # Apply LoRA via Unsloth
+        print("[UNSLOTH] Applying LoRA adapter (r=16, alpha=32)...")
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=16,
+            lora_alpha=32,
+            target_modules=[
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj",
+            ],
+            lora_dropout=0.05,
+            bias="none",
+        )
+        model.print_trainable_parameters()
+        use_lora = True
+        print(f"[OK] Unsloth LoRA attached")
+        print(f"[OK] Model loaded\n")
+
+    # ── BitsAndBytes QLoRA Path (manual, or fallback) ─────────────────────────
+    elif getattr(args, "load_in_4bit", False) and device == "cuda":
+        print("[QLoRA] Loading model with BitsAndBytes 4-bit...")
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -557,7 +604,6 @@ def main():
         )
         print(f"[OK] 4-bit BitsAndBytesConfig applied")
 
-        # Load quantized model
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
             quantization_config=bnb_config,
@@ -565,7 +611,6 @@ def main():
         )
         print(f"[OK] Model loaded in 4-bit quantized mode")
 
-        # Apply LoRA if PEFT is available
         if PEFT_AVAILABLE:
             print("[QLoRA] Applying LoRA adapter...")
             lora_config = LoraConfig(
@@ -586,12 +631,16 @@ def main():
         else:
             print("[WARN] PEFT not installed. Using quantized model without LoRA.")
 
-        # Attach processing_class
         if not hasattr(model, "processing_class"):
             model.processing_class = tokenizer
         print(f"[OK] Model loaded\n")
+
+    # ── Standard Loading (no quantization) ─────────────────────────────────────
     else:
-        # Standard loading (non-quantized)
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
             dtype=torch.float16 if device == "cuda" else torch.float32,
@@ -599,7 +648,6 @@ def main():
         )
         if device == "cpu":
             model = model.to(device)
-        # Attach processing_class so GRPOTrainer in trl 1.2.0 can use it
         if not hasattr(model, "processing_class"):
             model.processing_class = tokenizer
         print(f"[OK] Model loaded\n")
@@ -722,9 +770,34 @@ def main():
             # Reload model from scratch to clear any residual CUDA state
             print("[GRPO] Reloading model from disk to clear CUDA state...")
 
-            # Reload with same QLoRA settings if enabled
-            if use_qlora and device == "cuda" and PEFT_AVAILABLE:
-                # For QLoRA: reload as quantized base, re-attach LoRA
+            # Determine which loading path was used
+            reload_with_unsloth = use_unsloth and device == "cuda" and UNSLOTH_AVAILABLE
+            reload_with_qlora = getattr(args, "load_in_4bit", False) and device == "cuda"
+
+            if reload_with_unsloth:
+                # Reload via Unsloth
+                model_for_training, _ = FastLanguageModel.from_pretrained(
+                    model_name=args.model,
+                    max_seq_length=2048,
+                    load_in_4bit=True,
+                    dtype=None,
+                )
+                model_for_training = FastLanguageModel.get_peft_model(
+                    model_for_training,
+                    r=16,
+                    lora_alpha=32,
+                    target_modules=[
+                        "q_proj", "k_proj", "v_proj", "o_proj",
+                        "gate_proj", "up_proj", "down_proj",
+                    ],
+                    lora_dropout=0.05,
+                    bias="none",
+                )
+                model_for_training.eval()
+                print("[GRPO] Reloaded model with Unsloth LoRA")
+
+            elif reload_with_qlora and PEFT_AVAILABLE:
+                # Reload via BitsAndBytes QLoRA
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
@@ -749,7 +822,8 @@ def main():
                 )
                 model_for_training = get_peft_model(model_for_training, lora_config)
                 model_for_training.eval()
-                print("[GRPO] Reloaded model with QLoRA adapter attached")
+                print("[GRPO] Reloaded model with BitsAndBytes QLoRA")
+
             else:
                 # Standard reload for non-quantized models
                 model_for_training = AutoModelForCausalLM.from_pretrained(args.model, device_map=None)
@@ -764,15 +838,22 @@ def main():
             )
             trainer.train()
 
-            # Unmerge LoRA adapter before loading weights back
-            if use_lora and hasattr(model_for_training, "get_base_model"):
-                print("[GRPO] Unmerging LoRA adapter before loading trained weights...")
+            # Reload trained weights back into main model
+            if reload_with_unsloth:
+                # For Unsloth: merge and unload
+                print("[GRPO] Merging Unsloth LoRA into base model...")
+                merged_model = model_for_training.merge_and_unload()
+                model.load_state_dict(merged_model.state_dict())
+                del merged_model
+            elif reload_with_qlora and hasattr(model_for_training, "get_base_model"):
+                # For BitsAndBytes QLoRA: get base model
+                print("[GRPO] Unmerging BitsAndBytes LoRA adapter...")
                 base_model = model_for_training.get_base_model()
                 model.load_state_dict(base_model.state_dict())
-                del model_for_training
             else:
                 model.load_state_dict(model_for_training.state_dict())
-                del model_for_training
+
+            del model_for_training
             import gc
             gc.collect()
             print(f"[OK] GRPO training complete")
@@ -797,13 +878,15 @@ def main():
     except Exception:
         pass
 
-    # Merge LoRA adapter before saving (for QLoRA models)
+    # Merge LoRA adapter before saving (for LoRA models)
     if use_lora and hasattr(model, "merge_and_unload"):
         print("[SAVE] Merging LoRA adapter into base weights...")
         model = model.merge_and_unload()
         print("[OK] LoRA merged — saving full model")
-    elif use_qlora:
-        print("[SAVE] QLoRA model — saving adapter only (full model is quantized)")
+    elif use_unsloth:
+        print("[SAVE] Unsloth model — saving merged weights")
+    elif getattr(args, "load_in_4bit", False):
+        print("[SAVE] BitsAndBytes QLoRA model — saving adapter")
 
     model = model.cpu()
     model.save_pretrained(args.output_dir)
