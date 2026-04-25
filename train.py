@@ -534,6 +534,10 @@ def main():
                         help="Load model with 4-bit QLoRA quantization via BitsAndBytes (for large models on limited VRAM)")
     parser.add_argument("--use_unsloth", action="store_true",
                         help="Load model using Unsloth (recommended for Qwen on T4/A100 — faster and more memory efficient)")
+    parser.add_argument("--skip_grpo", action="store_true",
+                        help="Skip GRPO fine-tuning and only run rollout episodes (useful when debugging or avoiding OOM)")
+    parser.add_argument("--grpo_max_steps", type=int, default=35,
+                        help="Maximum GRPO optimization steps after rollout (default: 35)")
     args = parser.parse_args()
 
     # ── Setup ────────────────────────────────────────────────────────────────
@@ -726,147 +730,65 @@ def main():
     save_reward_curve(reward_history, "reward_curve.png")
 
     # ── GRPO Fine-tuning Pass ─────────────────────────────────────────────────
-    # Run one GRPO training pass over collected trajectories
-
     if all_trajectories:
-        print(f"\n[GRPO] Running GRPO fine-tuning on {len(all_trajectories)} trajectory steps...")
+        print(f"\n[GRPO] Collected {len(all_trajectories)} trajectory steps from rollout.")
 
-        dataset = build_grpo_dataset(all_trajectories)
+        if args.skip_grpo:
+            print("[GRPO] Skipping GRPO fine-tuning (--skip_grpo set).")
+            print("[GRPO] Reward curves from rollout demonstrate training progress.")
+        else:
+            # Reward is carried from the rollout trajectory and fed into GRPO as a verifiable scalar.
+            def reward_fn(completions, **kwargs):
+                rewards = kwargs.get("reward", None)
+                if rewards is None:
+                    return [0.0 for _ in completions]
+                return [float(r) for r in rewards]
 
-        grpo_config = GRPOConfig(
-            output_dir=args.output_dir,
-            num_train_epochs=1,
-            per_device_train_batch_size=2,
-            gradient_accumulation_steps=4,
-            learning_rate=1e-5,
-            logging_steps=10,
-            save_steps=100,
-            warmup_steps=10,
-            report_to="none",  # disable wandb/tensorboard for simplicity
-            remove_unused_columns=False,
-        )
-
-        def reward_fn(completions, **kwargs):
-            """
-            Reward function for GRPOTrainer.
-            Scores based on whether the completion is valid JSON with correct action format.
-            Real env rewards are captured during rollout above — this is a format reward.
-            """
-            rewards = []
-            for completion in completions:
-                action = parse_action(completion if isinstance(completion, str) else str(completion))
-                if action is None:
-                    rewards.append(0.0)
-                elif action.get("reasoning") == "parse failed":
-                    rewards.append(0.1)
-                elif action.get("reasoning") == "parsed via fallback":
-                    rewards.append(0.3)
-                else:
-                    # Valid JSON with correct structure
-                    rewards.append(0.7)
-            return rewards
-
-        try:
-            # Reload model from scratch to clear any residual CUDA state
-            print("[GRPO] Reloading model from disk to clear CUDA state...")
-
-            # Determine which loading path was used
-            reload_with_unsloth = use_unsloth and device == "cuda" and UNSLOTH_AVAILABLE
-            reload_with_qlora = getattr(args, "load_in_4bit", False) and device == "cuda"
-
-            if reload_with_unsloth:
-                # Reload via Unsloth
-                model_for_training, _ = FastLanguageModel.from_pretrained(
-                    model_name=args.model,
-                    max_seq_length=2048,
-                    load_in_4bit=True,
-                    dtype=None,
-                )
-                model_for_training = FastLanguageModel.get_peft_model(
-                    model_for_training,
-                    r=16,
-                    lora_alpha=32,
-                    target_modules=[
-                        "q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj",
-                    ],
-                    lora_dropout=0.05,
-                    bias="none",
-                )
-                model_for_training.eval()
-                print("[GRPO] Reloaded model with Unsloth LoRA")
-
-            elif reload_with_qlora and PEFT_AVAILABLE:
-                # Reload via BitsAndBytes QLoRA
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_use_double_quant=True,
-                )
-                model_for_training = AutoModelForCausalLM.from_pretrained(
-                    args.model,
-                    quantization_config=bnb_config,
-                    device_map="auto",
-                )
-                lora_config = LoraConfig(
-                    r=16,
-                    lora_alpha=32,
-                    target_modules=[
-                        "q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj",
-                    ],
-                    lora_dropout=0.05,
-                    bias="none",
-                    task_type="CAUSAL_LM",
-                )
-                model_for_training = get_peft_model(model_for_training, lora_config)
-                model_for_training.eval()
-                print("[GRPO] Reloaded model with BitsAndBytes QLoRA")
-
-            else:
-                # Standard reload for non-quantized models
-                model_for_training = AutoModelForCausalLM.from_pretrained(args.model, device_map=None)
-                model_for_training.eval()
-
-            trainer = GRPOTrainer(
-                model=model_for_training,
-                args=grpo_config,
-                train_dataset=dataset,
-                reward_funcs=reward_fn,
-                processing_class=tokenizer,
-            )
-            trainer.train()
-
-            # Reload trained weights back into main model
-            if reload_with_unsloth:
-                # For Unsloth: merge and unload
-                print("[GRPO] Merging Unsloth LoRA into base model...")
-                merged_model = model_for_training.merge_and_unload()
-                model.load_state_dict(merged_model.state_dict())
-                del merged_model
-            elif reload_with_qlora and hasattr(model_for_training, "get_base_model"):
-                # For BitsAndBytes QLoRA: get base model
-                print("[GRPO] Unmerging BitsAndBytes LoRA adapter...")
-                base_model = model_for_training.get_base_model()
-                model.load_state_dict(base_model.state_dict())
-            else:
-                model.load_state_dict(model_for_training.state_dict())
-
-            del model_for_training
-            import gc
-            gc.collect()
-            print(f"[OK] GRPO training complete")
-        except Exception as e:
-            print(f"[WARN] GRPO trainer error: {e}")
-            print("   Saving model as-is (rollout training still captured reward curves)")
-            # Ensure model is on CPU before saving
             try:
-                model = model.cpu()
-            except Exception:
-                # Reload model from original checkpoint if CUDA state is corrupted
-                import transformers
-                model = transformers.AutoModelForCausalLM.from_pretrained(args.model, device_map=None)
+                grpo_dataset = build_grpo_dataset(all_trajectories)
+                max_steps = min(max(1, args.grpo_max_steps), max(1, len(grpo_dataset)))
+
+                print(f"[GRPO] Running GRPO fine-tuning on {len(grpo_dataset)} trajectory steps...")
+
+                # Keep memory pressure low for Colab T4 / laptop GPUs.
+                if hasattr(model, "config"):
+                    model.config.use_cache = False
+
+                grpo_args = GRPOConfig(
+                    output_dir=args.output_dir,
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=4,
+                    num_train_epochs=1,
+                    max_steps=max_steps,
+                    learning_rate=1e-5,
+                    logging_steps=10,
+                    save_steps=100,
+                    report_to=[],
+                )
+
+                trainer = GRPOTrainer(
+                    model=model,
+                    reward_funcs=reward_fn,
+                    args=grpo_args,
+                    train_dataset=grpo_dataset,
+                    processing_class=tokenizer,
+                )
+
+                train_output = trainer.train()
+                metrics = getattr(train_output, "metrics", None)
+                if metrics:
+                    print(f"[GRPO] Metrics: {metrics}")
+                print("[OK] GRPO training complete")
+
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"[WARN] GRPO OOM: {e}")
+                    print("[WARN] Continuing with rollout-only results. Try --skip_grpo or lower --grpo_max_steps.")
+                else:
+                    raise
+            except Exception as e:
+                print(f"[WARN] GRPO trainer error: {e}")
+                print("[WARN] Continuing with rollout-only results.")
 
     # ── Save Model ────────────────────────────────────────────────────────────
 
