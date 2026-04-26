@@ -269,7 +269,7 @@ python train.py \
 |----------|-----|
 | **Live Environment** | https://huggingface.co/spaces/OGrohit/logtriage-env |
 | **Trained Model** | https://huggingface.co/OGrohit/logtriage-sre-agent |
-| **Blog Post** | https://github.com/rohitdecodes/logtriage-env/blob/main/BLOG_POST.md |
+| **Blog Post** | https://huggingface.co/spaces/OGrohit/logtriage-env/blob/main/BLOG_POST.md |
 | **GitHub Repository** | https://github.com/rohitdecodes/logtriage-env |
 | **Hackathon** | Meta × PyTorch × Scaler OpenEnv Grand Finale 2026 |
 
