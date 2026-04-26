@@ -44,7 +44,7 @@ except ImportError:
 try:
     from unsloth import FastLanguageModel
     UNSLOTH_AVAILABLE = True
-except ImportError:
+except Exception:
     UNSLOTH_AVAILABLE = False
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -384,8 +384,15 @@ def run_episode(
             return_tensors="pt",
             add_generation_prompt=True,
         )
-        input_ids = input_ids["input_ids"].to(device)
-        attention_mask = (input_ids != tokenizer.pad_token_id).long()
+        # HF tokenizers may return a tensor directly or a BatchEncoding.
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.to(device)
+        else:
+            input_ids = input_ids["input_ids"].to(device)
+        pad_token_id = tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = tokenizer.eos_token_id
+        attention_mask = (input_ids != pad_token_id).long()
         gen_kwargs = {
             "max_new_tokens": 150,
             "do_sample": True,
@@ -754,6 +761,15 @@ def main():
                 if hasattr(model, "config"):
                     model.config.use_cache = False
 
+                use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+                use_fp16 = device == "cuda" and not use_bf16
+                if use_bf16:
+                    print("[GRPO] Precision: bf16")
+                elif use_fp16:
+                    print("[GRPO] Precision: fp16 (bf16 unsupported on this GPU)")
+                else:
+                    print("[GRPO] Precision: fp32 (CPU mode)")
+
                 grpo_args = GRPOConfig(
                     output_dir=args.output_dir,
                     per_device_train_batch_size=1,
@@ -761,9 +777,13 @@ def main():
                     num_train_epochs=1,
                     max_steps=max_steps,
                     learning_rate=1e-5,
+                    generation_batch_size=4,
+                    num_generations=4,
                     logging_steps=10,
                     save_steps=100,
                     report_to=[],
+                    bf16=use_bf16,
+                    fp16=use_fp16,
                 )
 
                 trainer = GRPOTrainer(
