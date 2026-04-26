@@ -23,6 +23,12 @@ tags:
 
 ---
 
+## The Quote
+
+> *"Root causes never log first. Symptoms cascade before causes appear. By the time you're paging the right team, you've already wasted 30 minutes chasing ghosts in logs. LogTriageEnv teaches LLM agents to think like veteran SREs: trace backward, find the root cause before the symptoms drown you out."*
+
+---
+
 ## TL;DR — What Is This?
 
 **Problem:** Every 2AM, six services fire alerts simultaneously. One root cause is hidden in thousands of log lines. Average engineer takes 45 minutes to resolve.
@@ -240,7 +246,7 @@ curl http://localhost:7860/health
 
 ```bash
 # Clone
-git clone https://github.com/OGrohit/logtriage-env
+git clone https://github.com/rohitdecodes/logtriage-env
 cd logtriage-env
 
 # Install
@@ -263,8 +269,8 @@ python train.py \
 |----------|-----|
 | **Live Environment** | https://huggingface.co/spaces/OGrohit/logtriage-env |
 | **Trained Model** | https://huggingface.co/OGrohit/logtriage-sre-agent |
-| **Blog Post** | https://huggingface.co/blog/OGrohit/logtriage-sre-agent |
-| **GitHub** | https://github.com/OGrohit/logtriage-env |
+| **Blog Post** | https://github.com/rohitdecodes/logtriage-env/blob/main/BLOG_POST.md |
+| **GitHub Repository** | https://github.com/rohitdecodes/logtriage-env |
 | **Hackathon** | Meta × PyTorch × Scaler OpenEnv Grand Finale 2026 |
 
 ---
