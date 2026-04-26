@@ -22,6 +22,7 @@ import json
 import re
 import time
 import os
+import csv
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -672,10 +673,21 @@ def main():
     CHECKPOINT_DIR = "./phase2_checkpoints"
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
+    # CSV logging dir
+    CSV_LOG_DIR = "./logs"
+    os.makedirs(CSV_LOG_DIR, exist_ok=True)
+
     for task_id in tasks:
         print(f"\n{'='*60}")
         print(f"[TRAIN] Training on task: {task_id}")
-        print(f"{'='*60}")
+        print(f"{'='*60}\n")
+
+        # Initialize CSV file for this task
+        csv_path = os.path.join(CSV_LOG_DIR, f"{task_id}_results.csv")
+        csv_file = open(csv_path, "w", newline="")
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(["episode", "reward", "steps"])  # Header
+        print(f"[LOG] Tracking results -> {csv_path}\n")
 
         task_rewards = []
 
@@ -717,10 +729,17 @@ def main():
                 f"Rolling avg (10): {rolling_avg:.3f}"
             )
 
+            # Log to CSV
+            csv_writer.writerow([ep, f"{total_reward:.4f}", steps])
+            csv_file.flush()
+
             # Small delay to avoid hammering the env
             time.sleep(0.1)
 
         reward_history[task_id] = task_rewards
+
+        # Close CSV file for this task
+        csv_file.close()
 
         # Summary for this task
         if task_rewards:

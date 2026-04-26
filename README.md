@@ -144,6 +144,29 @@ Dense, shaped signal across the full trajectory — not just binary win/lose:
 - **Episodes:** 50 per task (150 total)
 - **Hardware:** NVIDIA T4 GPU (Colab)
 
+### Experimental Tracking
+
+Training results are automatically logged and saved to verify the training actually happened:
+
+- **`./logs/{task}_results.csv`** — Per-episode rewards and step counts (updated live during training)
+  ```
+  episode,reward,steps
+  1,+0.255,8
+  2,+0.240,7
+  3,+0.290,6
+  ...
+  ```
+- **`./phase2_checkpoints/{task}_ep*.json`** — Checkpoint data at episodes 25, 50, 75, etc.
+
+**To verify training results after running:**
+```bash
+# Check CSV files exist and contain data
+head ./logs/cascading_failure_results.csv
+
+# Plot results yourself:
+python -c "import pandas as pd; pd.read_csv('./logs/cascading_failure_results.csv').plot()"
+```
+
 ### Results
 
 | Task | First 10 Episodes | Last 10 Episodes | Improvement | Status |
@@ -293,6 +316,37 @@ python train.py \
 - [x] `/grader` endpoint
 - [x] HF Space deployed and healthy
 - [x] Baseline inference script
+- [x] Experimental tracking (CSV + checkpoints)
+
+## Verifying Training Execution
+
+**For judges to verify training actually happened:**
+
+```bash
+# 1. Check CSV log files exist
+ls -lh ./logs/
+
+# 2. View a sample of episode results
+head -20 ./logs/cascading_failure_results.csv
+
+# 3. Check checkpoint files exist
+ls -lh ./phase2_checkpoints/
+
+# 4. Plot training curves from CSV
+python -c "
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('./logs/cascading_failure_results.csv')
+plt.figure(figsize=(10, 6))
+plt.plot(df['episode'], df['reward'].astype(float))
+plt.xlabel('Episode')
+plt.ylabel('Reward')
+plt.title('Cascading Failure Task - GRPO Training')
+plt.savefig('verification_curve.png')
+print('✓ Verification curve saved')
+"
+```
 
 ---
 
