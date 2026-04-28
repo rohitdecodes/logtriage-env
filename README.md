@@ -426,7 +426,7 @@ python train.py \
 
 ## License
 
-MIT License — anyone can use LogTriageEnv to train LLM agents for incident triage.
+GNU General Public License v3.0 License — anyone can use LogTriageEnv to train LLM agents for incident triage.
 
 ---
 
