@@ -590,8 +590,7 @@ python train.py --model Qwen/Qwen2.5-3B-Instruct --task all
 | Live Environment | https://huggingface.co/spaces/OGrohit/logtriage-env |
 | Trained Model | https://huggingface.co/OGrohit/logtriage-sre-agent |
 | GitHub Repository | https://github.com/rohitdecodes/logtriage-env |
-| OpenEnv Spec | https://open-env.github.io |
-| Citation | @software{logtriage_env_2026} |
+
 
 ---
 
