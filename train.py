@@ -655,7 +655,7 @@ def main():
 
         model = AutoModelForCausalLM.from_pretrained(
             args.model,
-            dtype=torch.float16 if device == "cuda" else torch.float32,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             device_map="auto" if device == "cuda" else None,
         )
         if device == "cpu":
